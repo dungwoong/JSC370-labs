@@ -2,8 +2,8 @@
 title: "Lab 05 - Data Wrangling"
 output: 
   github_document: default
-  tufte::tufte_html:
-    css: style.css
+  html_document:
+    theme: flatly
 link-citations: yes
 always_allow_html: true
 ---
@@ -357,6 +357,8 @@ I assumed that since you wanted to use the quantile() function, we should calcul
 
 There are a few observations of stations with no recorded temperatures. Among the rest of the stations, a large proportion of them are in the middle or high temperature level. The median wind speed and atmospheric pressure across the groups seem similar.
 
+----
+
 Once you are done with that, you can compute the following:
 
 - Number of entries (records),
@@ -368,8 +370,27 @@ Once you are done with that, you can compute the following:
 All by the levels described before.
 
 ```{r}
+met_sum6 <- met_avg_lz %>% 
+  group_by(temp_level) %>% 
+  summarize(n = n(),
+            median_temp = quantile(temp, 0.5, na.rm=T),
+            median_wind_sp = quantile(wind.sp, 0.5, na.rm=T),
+            median_atm_press = quantile(atm.press, 0.5, na.rm=T))
 
+met_sum6 <- met_avg_lz %>% 
+  group_by(temp_level) %>% 
+  summarize(n_entries = n(),
+            n_NA = sum(is.na(temp) | is.na(wind.sp) | is.na(atm.press)),
+            n_stations = n_distinct(USAFID),
+            n_states = n_distinct(STATE),
+            mean_temp = mean(temp, na.rm = TRUE),
+            mean_wind_sp = mean(wind.sp, na.rm = TRUE),
+            mean_atm_press = mean(atm.press, na.rm = TRUE))
+
+as.data.frame(met_sum6)
 ```
+
+Since each row in the earlier table represented a singular station, the number of stations in each category simply equals the number of entries. We see there are a large number of rows with at least 1 NA value. We also see that the 'mid' range for average temperature has weather stations from the most states, compared to the other two ranges.
 
 Knit the document, commit your changes, and push them to GitHub. 
 
@@ -383,5 +404,47 @@ Let's practice running regression models with smooth functions on X. We need the
 - fit both a linear model and a spline model (use `gam()` with a cubic regression spline on wind speed). Summarize and plot the results from the models and interpret which model is the best fit and why.
 
 ```{r}
+library(ggplot2)
+# previous dataframe calculates mean values
+# we have to recalculate median values
+met_md_lz <- lz %>% 
+  group_by(USAFID) %>% 
+  summarise(
+    across(c(temp, wind.sp, atm.press),
+           function(x) median(x, na.rm=TRUE)),
+    STATE = first(STATE),
+    lat = first(lat),
+    lon = first(lon)
+  )
 
+ggplot(as.data.frame(met_md_lz), aes(x=wind.sp, y=temp)) +
+  geom_point() +
+  geom_smooth(formula=y~x, method='lm') +
+  geom_smooth()
 ```
+We see that the linear regression seems to capture some patterns in the data, but the LOESS curve suggests some curvature to the pattern. The LOESS curve is too sensitive to outliers in wind speed.
+
+### Linear model
+```{r}
+ggplot(as.data.frame(met_md_lz), aes(x=wind.sp, y=temp)) +
+  geom_point() +
+  geom_smooth(formula=y~x, method='lm')
+
+tmptbl <- as.data.frame(met_md_lz)
+
+linmod <- lm(tmptbl$temp~tmptbl$wind.sp)
+summary(linmod)
+```
+Visually, the linear regression fits the data decently. We see that the individual t-tests for the estimated coefficients, and the ANOVA test suggest that y is linearly related to x. However, the r-squared value is very low, suggesting the model doesn't explain much of the variance in y.
+
+```{r, warning=F, message=F}
+library(mgcv)
+# gonna assume cs is cubic splines
+gamd <- gam(temp ~ s(wind.sp, bs = "cs"), data=tmptbl)
+summary(gamd)
+```
+We see that the adjusted r squared is almost twice as high as the linear model.
+```{r}
+plot(gamd, xlab="temp", ylab="wind speed", main="Plot of fitted spline model")
+```
+The spline model finds a similar curve to the LOESS curve shown before. It is heavily impacted by the outlier with high wind speed and low temperature.
