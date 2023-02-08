@@ -5,6 +5,7 @@ output:
   tufte::tufte_html:
     css: style.css
 link-citations: yes
+always_allow_html: true
 ---
 
 # Learning goals
@@ -207,9 +208,50 @@ Knit the document, commit your changes, and save it on GitHub. Don't forget to a
 
 Just like the previous question, you are asked to identify what is the most representative, the median, station per state. This time, instead of looking at one variable at a time, look at the euclidean distance. If multiple stations show in the median, select the one located at the lowest latitude.
 
-```{r}
+<!-- basically do the same thing as before, but go by state. Get one station by state. Look at euclidean distance for (temp, windspeed, atmospheric pressure) with the median from the first question. -->
 
+"the most representative"
+
+```{r}
+# redo lz by state and to include lat and lon
+met_avg_lz <- lz %>% 
+  group_by(USAFID) %>% 
+  summarise(
+    across(c(temp, wind.sp, atm.press),
+           function(x) coalesce(mean(x, na.rm=TRUE), 0)),
+    STATE = first(STATE),
+    lat = first(lat),
+    lon = first(lon)
+  )
+
+# get as data frame
+met_med_lz = as.data.frame(met_med_lz)
+
+# calculate the Euclidean distance between each station and the median vector
+lz_with_distance <- met_avg_lz %>% 
+  mutate(distance = sqrt((temp - met_med_lz$temp)^2 + 
+                         (wind.sp - met_med_lz$wind.sp)^2 + 
+                         (atm.press - met_med_lz$atm.press)^2)) %>% 
+  select(STATE, lat, lon, distance, USAFID)
+
+# for each state, select the station with the minimum distance
+# if multiple stations show in the median, select the one located at the lowest latitude
+result2 <- lz_with_distance %>% 
+  group_by(STATE) %>% 
+  slice_min(n = 1, order_by = distance) %>% 
+  select(STATE, lat, lon)
 ```
+
+I coalesced missing atmospheric pressure values to 0. Thus, the table would prioritize stations with all three recorded values over those missing atmospheric pressure.
+
+Ties didn't have to be broken in this case. Only two states had all stations with missing atmospheric pressure.
+
+Here are the first few "most representative stations," by state.
+
+```{r}
+head(as.data.frame(result2))
+```
+
 
 Knit the doc and save it on GitHub.
 
@@ -217,9 +259,67 @@ Knit the doc and save it on GitHub.
 
 For each state, identify what is the station that is closest to the mid-point of the state. Combining these with the stations you identified in the previous question, use `leaflet()` to visualize all ~100 points in the same figure, applying different colors for those identified in this question.
 
-```{r}
+mid point probably calculated as avg point for each state idk.
 
+```{r}
+# redo lz by state and to include lat and lon
+met_avg_lz <- lz %>% 
+  group_by(USAFID) %>% 
+  summarise(
+    across(c(temp, wind.sp, atm.press),
+           function(x) mean(x, na.rm=TRUE)),
+    STATE = first(STATE),
+    lat = first(lat),
+    lon = first(lon)
+  )
+
+# midpoints by taking median lat lon by state.
+mid_points <- met_avg_lz %>% group_by(STATE) %>% 
+  summarise(
+            medlat = median(lat),
+            medlong = median(lon))
+
+# get distances from station to midpoints
+lz_with_distance <- met_avg_lz %>% 
+  left_join(mid_points, by = "STATE") %>% 
+  mutate(distance = sqrt((lat - medlat)^2 + (lon - medlong)^2))
+
+# select station with the minimum distance per state
+result3 <- lz_with_distance %>% 
+  group_by(STATE) %>% 
+  filter(distance == min(distance)) %>% 
+  select(STATE, lat, lon)
+
+# result stored in lat and lon
+# only 42 points, for 42 states. This is acceptable, may have missing data.
 ```
+
+Both Q2 and 3 have 42 observations, most likely because only 42 states were included in the data.
+
+**The leaflet plot below most likely will not show in the markdown document. Please inspect the html document to see the plot**
+
+```{r}
+library(leaflet)
+# Concatenate the two tables
+result2 <- as.data.frame(result2)
+result3 <- as.data.frame(result3)
+result2$source='result2'
+result3$source='result3'
+result_combined <- rbind(result2, result3)
+
+pal <- colorFactor(
+  palette = c('blue', 'red'),
+  domain = c("result2", "result3")
+)
+
+# plot 
+leaflet(result_combined) %>% addProviderTiles('OpenStreetMap') %>% 
+  addCircles(lng= ~lon, lat= ~lat, radius=30000, 
+             color=~pal(source), stroke=F, fillOpacity=1) %>% 
+  addLegend(colors=c('blue', 'red'), labels=c("Representative(Q2)", "Middle(Q3)"), title = "Season", position = "bottomright")
+```
+
+
 
 Knit the doc and save it on GitHub.
 
@@ -234,8 +334,28 @@ Start by computing the states' average temperature. Use that measurement to clas
 - High: temp >= 25
 
 ```{r}
+# create new variable
+met_avg_lz <- met_avg_lz %>% 
+  mutate(temp_level = case_when(
+    temp < 20 ~ "Low",
+    temp >= 20 & temp < 25 ~ "Mid",
+    temp >= 25 ~ "High"
+  ))
+
+met_sum5 <- met_avg_lz %>% 
+  group_by(temp_level) %>% 
+  summarize(n = n(),
+            median_temp = quantile(temp, 0.5, na.rm=T),
+            median_wind_sp = quantile(wind.sp, 0.5, na.rm=T),
+            median_atm_press = quantile(atm.press, 0.5, na.rm=T))
+
+as.data.frame(met_sum5)
 
 ```
+
+I assumed that since you wanted to use the quantile() function, we should calculate the median temp, wind speed and atmospheric pressure.
+
+There are a few observations of stations with no recorded temperatures. Among the rest of the stations, a large proportion of them are in the middle or high temperature level. The median wind speed and atmospheric pressure across the groups seem similar.
 
 Once you are done with that, you can compute the following:
 
