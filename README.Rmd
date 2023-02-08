@@ -140,6 +140,11 @@ merged <- merge(x=met,
 
 nrow(merged) # should be 2377343
 ```
+```{r}
+# allows us to use data.table with tidyverse functions
+# just makes things faster.
+lz = lazy_dt(merged, immutable=FALSE)
+```
 
 
 ## Question 1: Representative station for the US
@@ -149,32 +154,50 @@ Across all weather stations, what is the median station in terms of temperature,
 I averaged variables of interest for each weather station.
 
 ```{r}
-met_avg <- merged[ , .(
-  temp = mean(temp, na.rm = TRUE),
-  rh = mean(rh, na.rm = TRUE),
-  atm.press = mean(atm.press, na.rm=TRUE),
-  wind.sp = mean(wind.sp, na.rm = TRUE),
-  vis.dist = mean(vis.dist, na.rm = TRUE),
-  dew.point = mean(dew.point, na.rm = TRUE),
-  lat = mean(lat), lon = mean(lon),
-  elev = mean(elev, na.rm = TRUE)
-), by = "USAFID"]
+# met_avg <- merged[ , .(
+#   temp = mean(temp, na.rm = TRUE),
+#   atm.press = mean(atm.press, na.rm=TRUE),
+#   wind.sp = mean(wind.sp, na.rm = TRUE)
+# ), by = "USAFID"]
 
-get_station <- function(col, number) {
-  return(met_avg[col == number])
-}
-tempq <- quantile(met_avg$temp, c(0.5), na.rm=TRUE)
-windspq <- quantile(met_avg$wind.sp, 0.5, na.rm=T)
-atpq <- quantile(met_avg$atm.press, 0.5, na.rm=T)
+# average across stations
+met_avg_lz <- lz %>% 
+  group_by(USAFID) %>% 
+  summarise(
+    across(c(temp, wind.sp, atm.press),
+           function(x) mean(x, na.rm=TRUE))
+  )
 ```
-
-Some of the medians were calculated by averaging values for 2 different stations, so I had to search for multiple stations and couldn't use simple indexing.
 
 ```{r}
-met_avg[abs(met_avg$temp - tempq) < 0.005]
-get_station(met_avg$wind.sp, windspq)
-met_avg[abs(met_avg$atm.press - atpq) < 0.001]
+met_med_lz <- met_avg_lz %>% 
+  summarise(across(
+    2:4, # second to fourth column
+    function(x) quantile(x, probs=.5, na.rm=T)
+  ))
+# met_med_lz
 ```
+```{r}
+met_diffs <- met_avg_lz %>% # we have to use pull instead of $
+  mutate(
+    temp_diff = abs(temp - met_med_lz %>%  pull(temp)),
+    sp_diff = abs(wind.sp - met_med_lz %>% pull(wind.sp)),
+    pdiff = abs(atm.press - met_med_lz %>% pull(atm.press))
+  )
+
+as.data.frame(met_diffs %>% arrange(temp_diff) %>% slice(1))
+as.data.frame(met_diffs %>% arrange(sp_diff) %>% slice(1))
+as.data.frame(met_diffs %>% arrange(pdiff) %>% slice(1))
+```
+
+```{r}
+lz %>% 
+  select(c('USAFID', 'lon', 'lat')) %>% 
+  distinct() %>%   
+  filter(USAFID %in% c(720458, 720929, 722238))
+```
+
+We see the longitudes and latitudes are kind of close. A few degrees of difference in longitude and latitude makes a large difference in distance, but their longitudes and latitudes are close. One station is repeated twice, as its coordinates changed.
 
 The representative stations for the US, in terms of temperature, wind speed and atmospheric pressure, are all different.
 

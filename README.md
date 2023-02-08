@@ -159,6 +159,12 @@ nrow(merged) # should be 2377343
 
     ## [1] 2377343
 
+``` r
+# allows us to use data.table with tidyverse functions
+# just makes things faster.
+lz = lazy_dt(merged, immutable=FALSE)
+```
+
 ## Question 1: Representative station for the US
 
 Across all weather stations, what is the median station in terms of
@@ -169,59 +175,82 @@ weather stations that best represent continental US using the
 I averaged variables of interest for each weather station.
 
 ``` r
-met_avg <- merged[ , .(
-  temp = mean(temp, na.rm = TRUE),
-  rh = mean(rh, na.rm = TRUE),
-  atm.press = mean(atm.press, na.rm=TRUE),
-  wind.sp = mean(wind.sp, na.rm = TRUE),
-  vis.dist = mean(vis.dist, na.rm = TRUE),
-  dew.point = mean(dew.point, na.rm = TRUE),
-  lat = mean(lat), lon = mean(lon),
-  elev = mean(elev, na.rm = TRUE)
-), by = "USAFID"]
+# met_avg <- merged[ , .(
+#   temp = mean(temp, na.rm = TRUE),
+#   atm.press = mean(atm.press, na.rm=TRUE),
+#   wind.sp = mean(wind.sp, na.rm = TRUE)
+# ), by = "USAFID"]
 
-get_station <- function(col, number) {
-  return(met_avg[col == number])
-}
-tempq <- quantile(met_avg$temp, c(0.5), na.rm=TRUE)
-windspq <- quantile(met_avg$wind.sp, 0.5, na.rm=T)
-atpq <- quantile(met_avg$atm.press, 0.5, na.rm=T)
+# average across stations
+met_avg_lz <- lz %>% 
+  group_by(USAFID) %>% 
+  summarise(
+    across(c(temp, wind.sp, atm.press),
+           function(x) mean(x, na.rm=TRUE))
+  )
 ```
-
-Some of the medians were calculated by averaging values for 2 different
-stations, so I had to search for multiple stations and couldn’t use
-simple indexing.
 
 ``` r
-met_avg[abs(met_avg$temp - tempq) < 0.005]
+met_med_lz <- met_avg_lz %>% 
+  summarise(across(
+    2:4, # second to fourth column
+    function(x) quantile(x, probs=.5, na.rm=T)
+  ))
+# met_med_lz
 ```
-
-    ##    USAFID     temp       rh atm.press  wind.sp vis.dist dew.point    lat
-    ## 1: 720458 23.68173 76.66544       NaN 1.209682 15404.34  18.70838 37.751
-    ## 2: 725515 23.68639 82.24308       NaN 2.709164 15514.82  20.24690 40.301
-    ##        lon elev
-    ## 1: -82.637  372
-    ## 2: -96.754  404
 
 ``` r
-get_station(met_avg$wind.sp, windspq)
+met_diffs <- met_avg_lz %>% # we have to use pull instead of $
+  mutate(
+    temp_diff = abs(temp - met_med_lz %>%  pull(temp)),
+    sp_diff = abs(wind.sp - met_med_lz %>% pull(wind.sp)),
+    pdiff = abs(atm.press - met_med_lz %>% pull(atm.press))
+  )
+
+as.data.frame(met_diffs %>% arrange(temp_diff) %>% slice(1))
 ```
 
-    ##    USAFID     temp       rh atm.press  wind.sp vis.dist dew.point    lat
-    ## 1: 720929 17.43278 75.73968       NaN 2.461838 15435.15  12.58262 45.506
-    ##        lon elev
-    ## 1: -91.981  378
+    ##   USAFID     temp  wind.sp atm.press   temp_diff  sp_diff pdiff
+    ## 1 720458 23.68173 1.209682       NaN 0.002328907 1.252156   NaN
 
 ``` r
-met_avg[abs(met_avg$atm.press - atpq) < 0.001]
+as.data.frame(met_diffs %>% arrange(sp_diff) %>% slice(1))
 ```
 
-    ##    USAFID     temp       rh atm.press  wind.sp vis.dist dew.point      lat
-    ## 1: 722238 26.13978 85.51716  1014.691 1.472656 13366.12  22.07447 31.34990
-    ## 2: 723200 25.82436 74.35313  1014.692 1.537661 14549.19  20.29591 34.34823
-    ##          lon elev
-    ## 1: -85.66667   97
-    ## 2: -85.16164  196
+    ##   USAFID     temp  wind.sp atm.press temp_diff sp_diff pdiff
+    ## 1 720929 17.43278 2.461838       NaN  6.251284       0   NaN
+
+``` r
+as.data.frame(met_diffs %>% arrange(pdiff) %>% slice(1))
+```
+
+    ##   USAFID     temp  wind.sp atm.press temp_diff   sp_diff        pdiff
+    ## 1 722238 26.13978 1.472656  1014.691  2.455719 0.9891817 0.0005376377
+
+``` r
+lz %>% 
+  select(c('USAFID', 'lon', 'lat')) %>% 
+  distinct() %>%   
+  filter(USAFID %in% c(720458, 720929, 722238))
+```
+
+    ## Source: local data table [4 x 3]
+    ## Call:   unique(`_DT1`[, .(USAFID, lon, lat)])[USAFID %in% c(720458, 720929, 
+    ##     722238)]
+    ## 
+    ##   USAFID   lon   lat
+    ##    <int> <dbl> <dbl>
+    ## 1 720458 -82.6  37.8
+    ## 2 720929 -92.0  45.5
+    ## 3 722238 -85.7  31.4
+    ## 4 722238 -85.7  31.3
+    ## 
+    ## # Use as.data.table()/as.data.frame()/as_tibble() to access results
+
+We see the longitudes and latitudes are kind of close. A few degrees of
+difference in longitude and latitude makes a large difference in
+distance, but their longitudes and latitudes are close. One station is
+repeated twice, as its coordinates changed.
 
 The representative stations for the US, in terms of temperature, wind
 speed and atmospheric pressure, are all different.
