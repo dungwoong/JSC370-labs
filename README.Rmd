@@ -90,9 +90,24 @@ Once you are done setting up the project, you can now start working with the MET
 
 1. Load the `data.table` (and the `dtplyr` and `dplyr` packages if you plan to work with those).
 
+```{r, warning=F, message=F}
+library(data.table)
+library(dtplyr)
+library(dplyr)
+```
+
+
 2. Load the met data from https://github.com/JSC370/jsc370-2023/blob/main/labs/lab03/met_all.gz or  (Use https://raw.githubusercontent.com/JSC370/jsc370-2023/main/labs/lab03/met_all.gz to download programmatically), and also the station data. For the latter, you can use the code we used during lecture to pre-process the stations data:
 
-```{r stations-data, eval = FALSE}
+```{r met-file}
+fn <- "https://raw.githubusercontent.com/JSC370/jsc370-2023/main/labs/lab03/met_all.gz"
+if (!file.exists("met_all.gz"))
+  download.file(fn, destfile = "met_all.gz")
+met <- data.table::fread("met_all.gz")
+```
+
+
+```{r stations-data, eval = T}
 # Download the data
 stations <- fread("ftp://ftp.ncdc.noaa.gov/pub/data/noaa/isd-history.csv")
 stations[, USAF := as.integer(USAF)]
@@ -115,13 +130,53 @@ stations <- stations[n == 1,][, n := NULL]
 
 3. Merge the data as we did during the lecture.
 
+```{r}
+merged <- merge(x=met,
+                y=stations,
+                by.x="USAFID",
+                by.y="USAF",
+                all.x=T,
+                all.y=F)
+
+nrow(merged) # should be 2377343
+```
+
+
 ## Question 1: Representative station for the US
 
 Across all weather stations, what is the median station in terms of temperature, wind speed, and atmospheric pressure? Look for the three weather stations that best represent continental US using the `quantile()` function. Do these three coincide?
 
-```{r}
+I averaged variables of interest for each weather station.
 
+```{r}
+met_avg <- merged[ , .(
+  temp = mean(temp, na.rm = TRUE),
+  rh = mean(rh, na.rm = TRUE),
+  atm.press = mean(atm.press, na.rm=TRUE),
+  wind.sp = mean(wind.sp, na.rm = TRUE),
+  vis.dist = mean(vis.dist, na.rm = TRUE),
+  dew.point = mean(dew.point, na.rm = TRUE),
+  lat = mean(lat), lon = mean(lon),
+  elev = mean(elev, na.rm = TRUE)
+), by = "USAFID"]
+
+get_station <- function(col, number) {
+  return(met_avg[col == number])
+}
+tempq <- quantile(met_avg$temp, c(0.5), na.rm=TRUE)
+windspq <- quantile(met_avg$wind.sp, 0.5, na.rm=T)
+atpq <- quantile(met_avg$atm.press, 0.5, na.rm=T)
 ```
+
+Some of the medians were calculated by averaging values for 2 different stations, so I had to search for multiple stations and couldn't use simple indexing.
+
+```{r}
+met_avg[abs(met_avg$temp - tempq) < 0.005]
+get_station(met_avg$wind.sp, windspq)
+met_avg[abs(met_avg$atm.press - atpq) < 0.001]
+```
+
+The representative stations for the US, in terms of temperature, wind speed and atmospheric pressure, are all different.
 
 Knit the document, commit your changes, and save it on GitHub. Don't forget to add `README.md` to the tree, the first time you render it.
 
