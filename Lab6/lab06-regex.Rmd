@@ -1,7 +1,7 @@
 ---
 title: "Lab 06 - Regular Expressions and Web Scraping"
 output: 
-  pdf_document
+  github_document
 ---
 
 ```{r setup, echo=FALSE}
@@ -214,8 +214,8 @@ take advantage of vectorization of `stringr::str_extract`
 
 ```{r extracting-last-bit, eval=T}
 # it seems like abstracts are within <AbstractText> tags, and the tags can have attributes.
-abstracts <- str_extract(pub_char_list, "Abstract.*Abstract")
-abstracts <- str_remove_all(abstracts, "(Abstract.*>)|(</Abstract)")
+abstracts <- str_extract(pub_char_list, "<Abstract>(\\n|.)+</Abstract>")
+abstracts <- str_remove_all(abstracts, "</?[[:alnum:]]+>")
 abstracts <- str_replace_all(abstracts, "\\s+", " ")
 sum(is.na(abstracts))
 ```
@@ -224,17 +224,18 @@ sum(is.na(abstracts))
 
 _Answer here._
 
-50 papers.
+53 papers.
 
 Now, the title
 
 ```{r process-titles, eval=T}
-titles <- str_extract(pub_char_list, "ArticleTitle.*ArticleTitle")
-titles <- str_remove_all(titles, "(ArticleTitle.*>)|(</ArticleTitle)")
+idk = "ArticleTitle.*ArticleTitle"
+titles <- str_extract(pub_char_list, "<ArticleTitle>(\\n|.)+</ArticleTitle>" )
+titles <- str_remove_all(titles, "</?[[:alnum:]]+>")
 sum(is.na(titles))
 ```
 
-- How many of these don't have a title ? 
+- How many of these don't have a title 
 
 _Answer here._
 None. All articles have a title
